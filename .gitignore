@@ -1,1 +1,6 @@
 checkpoint/
+lightning_logs/
+*.out
+*.slurm
+__pycache__/
+*.pyc

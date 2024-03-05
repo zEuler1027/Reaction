@@ -45,6 +45,7 @@ class ProcessedTS1x(BaseDataset):
             zero_charge=zero_charge,
             remove_h=remove_h,
         )
+        self.device = torch.device(device)
         if confidence_model:
             use_by_ind = False
         if remove_h:
@@ -71,7 +72,7 @@ class ProcessedTS1x(BaseDataset):
                     self.raw_dataset[k][v] += [
                         mapped_val[ii] for ii in single_frag_inds
                     ]
-        if reflection:
+        if reflection: # False
             for k, mapped_k in FRAG_MAPPING.items():
                 for v, val in self.raw_dataset[k].items():
                     if v in ["wB97x_6-31G(d).forces", position_key]:
@@ -79,12 +80,23 @@ class ProcessedTS1x(BaseDataset):
                     else:
                         self.raw_dataset[k][v] += val
 
+        # condition added by sz
+        self.raw_dataset['single_fragment'] = [
+            torch.tensor(data_duplicated['single_fragment'][ii], device=self.device).reshape(1, 1)
+            for ii in single_frag_inds
+        ]
+        if swapping_react_prod:
+            self.raw_dataset['single_fragment'] += [
+                torch.tensor(data_duplicated['single_fragment'][ii], device=self.device).reshape(1, 1)
+                for ii in single_frag_inds
+            ]
+
         self.reactant = self.raw_dataset["reactant"]
         self.transition_state = self.raw_dataset["transition_state"]
         self.product = self.raw_dataset["product"]
+        self.single_frag = self.raw_dataset["single_fragment"]
 
         self.n_fragments = pad_fragments + 3
-        self.device = torch.device(device)
         n_samples = len(self.reactant["charges"])
         self.n_samples = len(self.reactant["charges"])
 
@@ -141,11 +153,5 @@ class ProcessedTS1x(BaseDataset):
             # for idx in range(2):
             #     self.patch_dummy_molecules(idx + 1)
 
-        self.data["condition"] = [
-            torch.zeros(
-                size=(1, 1),
-                dtype=torch.int64,
-                device=self.device,
-            )
-            for _ in range(self.n_samples)
-        ]
+        self.data["condition"] = self.single_frag
+        assert len(self.data["condition"]) == self.n_samples

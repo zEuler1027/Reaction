@@ -4,6 +4,7 @@ import os
 import shutil
 import datetime
 import torch
+import logging
 
 from oa.trainer.pl_trainer import DDPMModule
 from pytorch_lightning import Trainer, seed_everything
@@ -17,14 +18,14 @@ from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.strategies.ddp import DDPStrategy
 
 from oa.trainer.ema import EMACallback
-from oa.model import EGNN, LEFTNet
+from oa.model import EGNN, LEFTNet, ConditionNet
 
 import os
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:128" # prevent OOM
 
-model_type = "leftnet"
+model_type = "leftnet_condition"
 version = "0"
-project = "OAReactDiff"
+project = "condition_react"
 # ---EGNNDynamics---
 egnn_config = dict(
     in_node_nf=8,  # embedded dim before injecting to egnn
@@ -43,7 +44,7 @@ egnn_config = dict(
     normalization_factor=1.0,
     aggregation_method="mean",
 )
-leftnet_config = dict(
+condition_config = dict(
     pos_require_grad=False,
     cutoff=10.0, # fully connected
     num_layers=6,
@@ -56,11 +57,13 @@ leftnet_config = dict(
     pos_grad=False,
     single_layer_output=True,
     object_aware=True,
+    condition_in=2, # uncondition: None
+    condition_emb_dim=4, # uncondition: None
 )
 
-if model_type == "leftnet":
-    model_config = leftnet_config
-    model = LEFTNet
+if model_type == "leftnet_condition":
+    model_config = condition_config
+    model = ConditionNet
 elif model_type == "egnn":
     model_config= egnn_config
     model = EGNN
@@ -68,7 +71,7 @@ else:
     raise KeyError("model type not implemented.")
 
 optimizer_config = dict(
-    lr=2e-4,
+    lr=1e-4,
     betas=[0.9, 0.999],
     weight_decay=0,
     amsgrad=True,
@@ -170,11 +173,12 @@ checkpoint_callback = ModelCheckpoint(
     monitor="val-totloss",
     dirpath=ckpt_path,
     filename="ddpm-{epoch:03d}-{val-totloss:.2f}",
-    every_n_epochs=200,
+    every_n_epochs=100,
     save_top_k=-1,
 )
 lr_monitor = LearningRateMonitor(logging_interval="step")
-callbacks = [earlystopping, checkpoint_callback, TQDMProgressBar(), lr_monitor]
+progress_bar = TQDMProgressBar(refresh_rate=20)
+callbacks = [earlystopping, checkpoint_callback, progress_bar, lr_monitor]
 if training_config["ema"]:
     callbacks.append(EMACallback(decay=training_config["ema_decay"]))
 
@@ -191,11 +195,14 @@ if strategy is not None:
     devices = list(range(torch.cuda.device_count()))
 if len(devices) == 1:
     strategy = None
+
+# logging.getLogger("pytorch_lightning").setLevel(logging.WARNING)
 trainer = Trainer(
-    max_epochs=1000,
-    accelerator="cpu",
+    # fast_dev_run=True, 
+    max_epochs=800,
+    accelerator="gpu",
     deterministic=False,
-    # devices=devices,
+    devices=devices,
     strategy=strategy,
     log_every_n_steps=1,
     callbacks=callbacks,
@@ -208,4 +215,3 @@ trainer = Trainer(
 )
 
 trainer.fit(ddpm)
-
