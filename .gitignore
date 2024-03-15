@@ -4,3 +4,5 @@ lightning_logs/
 *.slurm
 __pycache__/
 *.pyc
+wandb/
+tb_logs/

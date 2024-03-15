@@ -1,10 +1,16 @@
 from typing import List, Optional, Tuple
 from uuid import uuid4
 import os
-import shutil
 import datetime
 import torch
-import logging
+import warnings
+from pprint import pprint
+import os
+import warnings
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:128" # prevent OOM
+job_id = os.environ.get('SLURM_JOB_ID', 'default_version') # get slurm_id
+warnings.filterwarnings("ignore", message="An issue occurred while importing 'pyg-lib'.*") # ignore warnings
+warnings.filterwarnings("ignore", message="An issue occurred while importing 'torch-sparse'.*") # ignore warnings
 
 from oa.trainer.pl_trainer import DDPMModule
 from pytorch_lightning import Trainer, seed_everything
@@ -14,17 +20,14 @@ from pytorch_lightning.callbacks import (
     ModelCheckpoint,
     LearningRateMonitor,
 )
-from pytorch_lightning.loggers import WandbLogger
+from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.strategies.ddp import DDPStrategy
-
 from oa.trainer.ema import EMACallback
 from oa.model import EGNN, LEFTNet, ConditionNet
 
-import os
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:128" # prevent OOM
+
 
 model_type = "leftnet_condition"
-version = "0"
 project = "condition_react"
 # ---EGNNDynamics---
 egnn_config = dict(
@@ -71,7 +74,7 @@ else:
     raise KeyError("model type not implemented.")
 
 optimizer_config = dict(
-    lr=1e-4,
+    lr=2e-4,
     betas=[0.9, 0.999],
     weight_decay=0,
     amsgrad=True,
@@ -81,7 +84,7 @@ optimizer_config = dict(
 training_config = dict(
     datadir="oa/data/transition1x/",
     remove_h=False,
-    bz=16,
+    bz=20,
     num_workers=0,
     clip_grad=True,
     gradient_clip_val=None,
@@ -159,10 +162,9 @@ ddpm = DDPMModule(
 config = model_config.copy()
 config.update(optimizer_config)
 config.update(training_config)
-trainer = None
 
-time_point = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-ckpt_path = f"checkpoint/{project}/{time_point}"
+time_point = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S") # unused
+ckpt_path = f"tb_logs/{model_type}/{job_id}/checkpoints"
 earlystopping = EarlyStopping(
     monitor="val-totloss",
     patience=2000,
@@ -182,13 +184,8 @@ callbacks = [earlystopping, checkpoint_callback, progress_bar, lr_monitor]
 if training_config["ema"]:
     callbacks.append(EMACallback(decay=training_config["ema_decay"]))
 
-if not os.path.isdir(ckpt_path):
-    os.makedirs(ckpt_path)
-shutil.copy(f"./oa/model/{model_type}.py", f"{ckpt_path}/{model_type}.py")
+pprint(config)
 
-print("config: ", config)
-
-strategy = None
 devices = [0]
 strategy = DDPStrategy(find_unused_parameters=True)
 if strategy is not None:
@@ -196,12 +193,18 @@ if strategy is not None:
 if len(devices) == 1:
     strategy = None
 
-# logging.getLogger("pytorch_lightning").setLevel(logging.WARNING)
+fast_dev_run = False
+if not fast_dev_run:
+    logger = TensorBoardLogger("tb_logs", name=f"{model_type}", version=job_id)
+else:
+    logger = None
+
 trainer = Trainer(
-    # fast_dev_run=True, 
+    fast_dev_run=fast_dev_run, 
     max_epochs=800,
     accelerator="gpu",
     deterministic=False,
+    logger=logger,
     devices=devices,
     strategy=strategy,
     log_every_n_steps=1,
