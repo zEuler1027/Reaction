@@ -16,15 +16,14 @@ from oa.trainer.pl_trainer import DDPMModule
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks.progress import TQDMProgressBar
 from pytorch_lightning.callbacks import (
-    EarlyStopping,
     ModelCheckpoint,
     LearningRateMonitor,
 )
 from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.strategies.ddp import DDPStrategy
+
 from oa.trainer.ema import EMACallback
 from oa.model import EGNN, LEFTNet, ConditionNet
-
 
 
 model_type = "leftnet_condition"
@@ -74,7 +73,7 @@ else:
     raise KeyError("model type not implemented.")
 
 optimizer_config = dict(
-    lr=2e-4,
+    lr=1e-4,
     betas=[0.9, 0.999],
     weight_decay=0,
     amsgrad=True,
@@ -85,7 +84,7 @@ training_config = dict(
     datadir="oa/data/transition1x/",
     remove_h=False,
     bz=20,
-    num_workers=0,
+    num_workers=20,
     clip_grad=True,
     gradient_clip_val=None,
     ema=False,
@@ -165,12 +164,7 @@ config.update(training_config)
 
 time_point = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S") # unused
 ckpt_path = f"tb_logs/{model_type}/{job_id}/checkpoints"
-earlystopping = EarlyStopping(
-    monitor="val-totloss",
-    patience=2000,
-    verbose=True,
-    log_rank_zero_only=True,
-)
+
 checkpoint_callback = ModelCheckpoint(
     monitor="val-totloss",
     dirpath=ckpt_path,
@@ -179,8 +173,8 @@ checkpoint_callback = ModelCheckpoint(
     save_top_k=-1,
 )
 lr_monitor = LearningRateMonitor(logging_interval="step")
-progress_bar = TQDMProgressBar(refresh_rate=20)
-callbacks = [earlystopping, checkpoint_callback, progress_bar, lr_monitor]
+progress_bar = TQDMProgressBar(refresh_rate=100)
+callbacks = [checkpoint_callback, progress_bar, lr_monitor]
 if training_config["ema"]:
     callbacks.append(EMACallback(decay=training_config["ema_decay"]))
 
@@ -212,7 +206,7 @@ trainer = Trainer(
     profiler=None,
     accumulate_grad_batches=1,
     gradient_clip_val=training_config["gradient_clip_val"],
-    limit_train_batches=100000,
+    limit_train_batches=1000000,
     limit_val_batches=20,
     # max_time="00:10:00:00",
 )
