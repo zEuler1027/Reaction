@@ -18,7 +18,7 @@ class BaseDynamics(nn.Module):
         update_pocket_coords: bool = True,
         condition_time: bool = True,
         edge_cutoff: Optional[float] = None,
-        model: nn.Module = EGNN,
+        model: nn.Module = None,
         device: torch.device = torch.device("cuda"),
         enforce_same_encoding: Optional[List] = None,
         source: Optional[Dict] = None,
@@ -60,7 +60,7 @@ class BaseDynamics(nn.Module):
         self.device = device
 
         if model is None:
-            model = EGNN
+            raise ValueError("Model must be provided.")
         self.model = model(**model_config)
         if source is not None:
             self.model.load_state_dict(source["model"])

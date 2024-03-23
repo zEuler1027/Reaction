@@ -66,7 +66,7 @@ class EGNNDynamics(BaseDynamics):
         edge_index: Tensor,
         t: Tensor,
         conditions: Tensor,
-        n_frag_switch: Tensor,
+        atoms_mask_rtp: Tensor,
         combined_mask: Tensor,
         self_edge_index: Optional[Tensor] = None,
         edge_attr: Optional[Tensor] = None,
@@ -79,7 +79,7 @@ class EGNNDynamics(BaseDynamics):
             t (Tensor): time tensor. If dim is 1, same for all samples;
                 otherwise different t for different samples
             conditions (Tensor): condition tensors
-            n_frag_switch (Tensor): [n_nodes], fragment index for each nodes
+            atoms_mask_rtp (Tensor): [n_nodes], fragment index for each nodes
             combined_mask (Tensor): [n_nodes], sample index for each node
             edge_attr (Optional[Tensor]): [n_edge, dim_edge_attribute]. Defaults to None.
 
@@ -121,7 +121,7 @@ class EGNNDynamics(BaseDynamics):
 
         # add cutoff
         # edge_index = get_edges_index(combined_mask, pos=pos, edge_cutoff=3.0, remove_self_edge=True)
-        subgraph_mask = get_subgraph_mask(edge_index, n_frag_switch)
+        subgraph_mask = get_subgraph_mask(edge_index, atoms_mask_rtp)
         if self.update_pocket_coords:
             update_coords_mask = None
         else:
@@ -131,12 +131,13 @@ class EGNNDynamics(BaseDynamics):
             h,
             pos,
             edge_index,
-            edge_attr,
+            edge_attr=edge_attr,
             node_mask=None,
             update_coords_mask=update_coords_mask,
             subgraph_mask=subgraph_mask[:, None],
             # self_edge_index=self_edge_index,
         )
+
         vel = pos_final - pos
         if torch.any(torch.isnan(vel)):
             print("Warning: detected nan in pos, resetting EGNN output to randn.")
@@ -148,7 +149,8 @@ class EGNNDynamics(BaseDynamics):
         
         h_final = h_final[:, :-condition_dim]
 
-        frag_index = self.compute_frag_index(n_frag_switch)
+        frag_index = self.compute_frag_index(atoms_mask_rtp)
+        print(frag_index)
         xh_final = [
             torch.cat(
                 [
@@ -178,10 +180,10 @@ class EGNNDynamics(BaseDynamics):
         return xh
 
     @staticmethod
-    def compute_frag_index(n_frag_switch: Tensor) -> np.ndarray:
+    def compute_frag_index(atoms_mask_rtp: Tensor) -> np.ndarray:
         counts = [
-            torch.where(n_frag_switch == ii)[0].numel()
-            for ii in torch.unique(n_frag_switch)
+            torch.where(atoms_mask_rtp == ii)[0].numel()
+            for ii in torch.unique(atoms_mask_rtp)
         ]
         return np.concatenate([np.array([0]), np.cumsum(counts)])
 

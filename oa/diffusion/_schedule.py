@@ -130,11 +130,9 @@ class PredefinedNoiseSchedule(nn.Module):
 
 
 class DiffSchedule(nn.Module):
-    def __init__(self, gamma_module: nn.Module, norm_values: Tuple[float]) -> None:
+    def __init__(self, gamma_module: nn.Module) -> None:
         super().__init__()
         self.gamma_module = gamma_module
-        self.norm_values = norm_values
-        self.check_issues_norm_values()
 
     @staticmethod
     def inflate_batch_array(array, target):
@@ -185,22 +183,6 @@ class DiffSchedule(nn.Module):
         sigma_t_given_s = torch.sqrt(sigma2_t_given_s)
 
         return sigma2_t_given_s, sigma_t_given_s, alpha_t_given_s
-
-    def check_issues_norm_values(self, num_stdevs=8):
-        zeros = torch.zeros((1, 1))
-        gamma_0 = self.gamma_module(zeros)
-        sigma_0 = self.sigma(gamma_0, target_tensor=zeros).item()
-
-        # Checked if 1 / norm_value is still larger than 10 * standard
-        # deviation.
-        norm_value = self.norm_values[1]
-
-        if sigma_0 * num_stdevs > 1.0 / norm_value:
-            raise ValueError(
-                f"Value for normalization value {norm_value} probably too "
-                f"large with sigma_0 {sigma_0:.5f} and "
-                f"1 / norm_value = {1. / norm_value}"
-            )
 
 
 def get_repaint_schedule(resamplings, jump_length, timesteps):

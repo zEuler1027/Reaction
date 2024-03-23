@@ -8,16 +8,14 @@ from torch_scatter import scatter_mean
 
 from oa.dynamics import EGNNDynamics
 from oa.utils._graph_tools import (
-    get_n_frag_switch,
+    get_atoms_mask_rtp,
     get_mask_for_frag,
     get_edges_index,
-    get_custom_edge_index,
-    get_self_edge_index,
 )
 
 import oa.diffusion._utils as utils
 from oa.diffusion._schedule import DiffSchedule, get_repaint_schedule
-from oa.diffusion._normalizer import Normalizer, FEATURE_MAPPING
+from oa.diffusion._normalizer import FEATURE_MAPPING
 
 
 class EnVariationalDiffusion(nn.Module):
@@ -29,7 +27,6 @@ class EnVariationalDiffusion(nn.Module):
         self,
         dynamics: EGNNDynamics,
         schdule: DiffSchedule,
-        normalizer: Normalizer,
         size_histogram: Optional[Dict] = None,
         loss_type: str = "l2",
         pos_only: bool = False,
@@ -40,7 +37,6 @@ class EnVariationalDiffusion(nn.Module):
 
         self.dynamics = dynamics
         self.schedule = schdule
-        self.normalizer = normalizer
         self.size_histogram = size_histogram
         self.loss_type = loss_type
         self.pos_only = pos_only
@@ -50,8 +46,6 @@ class EnVariationalDiffusion(nn.Module):
         self.node_nfs = dynamics.node_nfs
         self.fragment_names = dynamics.fragment_names
         self.T = schdule.gamma_module.timesteps
-        self.norm_values = normalizer.norm_values
-        self.norm_biases = normalizer.norm_biases
 
     # ------ FORWARD PASS ------
 
@@ -67,28 +61,19 @@ class EnVariationalDiffusion(nn.Module):
         #TODO: edge_attr not considered at all
         """
         num_sample = representations[0]["size"].size(0)
+
         n_nodes = torch.stack(
             [repr["size"] for repr in representations],
             dim=0,
-        ).sum(dim=0)
+        ).sum(dim=0) # num_atoms for each reaction (3n)
+
         device = representations[0]["pos"].device
         masks = [repre["mask"] for repre in representations]
         combined_mask = torch.cat(masks)
         edge_index = get_edges_index(combined_mask, remove_self_edge=True)
         fragments_nodes = [repr["size"] for repr in representations]
-        # customed edge_index
-        # edge_index = get_custom_edge_index(masks, fragments_nodes=fragments_nodes, remove_self_edge=True)
-        n_frag_switch = get_n_frag_switch(fragments_nodes)
 
-        # add self_edge
-        # self_edge_index = get_self_edge_index(fragments_nodes)
-
-
-        # Normalize data, take into account volume change in x.
-        representations = self.normalizer.normalize(representations)
-
-        # Likelihood change due to normalization
-        delta_log_px = self.delta_log_px(n_nodes.sum())
+        atoms_mask_rtp = get_atoms_mask_rtp(fragments_nodes) # [0..., 1..., 2...] 0, 1, 2 for num of atoms in r, t, p
 
         # Sample a timestep t for each example in batch
         # At evaluation time, loss_0 will be computed separately to decrease
@@ -136,7 +121,7 @@ class EnVariationalDiffusion(nn.Module):
             edge_index=edge_index,
             t=t,
             conditions=conditions,
-            n_frag_switch=n_frag_switch,
+            atoms_mask_rtp=atoms_mask_rtp,
             combined_mask=combined_mask,
             # self_edge_index=self_edge_index,
             edge_attr=None,  # TODO: no edge_attr is considered now
@@ -170,17 +155,6 @@ class EnVariationalDiffusion(nn.Module):
 
         # The _constants_ depending on sigma_0 from the
         # cross entropy term E_q(z0 | x) [log p(x | z0)].
-        neg_log_constants = -self.log_constants_p_x_given_z0(
-            n_nodes=n_nodes, device=device
-        )
-
-        # The KL between q(zT | x) and p(zT) = Normal(0, 1).
-        # Should be close to zero.
-        # kl_prior = self.kl_prior_with_pocket(
-        #     xh_lig, xh_pocket, ligand['mask'], pocket['mask'],
-        #     ligand['size'] + pocket['size'])
-        # TODO: approximate KL prior with zero now, which should not influence training.
-        kl_prior = torch.zeros_like(neg_log_constants)
 
         if self.training:
             # Computes the L_0 term (even if gamma_t is not actually gamma_0)
@@ -223,7 +197,7 @@ class EnVariationalDiffusion(nn.Module):
                 edge_index=edge_index,
                 t=t_zeros,
                 conditions=conditions,
-                n_frag_switch=n_frag_switch,
+                atoms_mask_rtp=atoms_mask_rtp,
                 combined_mask=combined_mask,
                 edge_attr=None,  # TODO: no edge_attr is considered now
             )
@@ -243,30 +217,16 @@ class EnVariationalDiffusion(nn.Module):
             ]
 
         loss_terms = {
-            "delta_log_px": delta_log_px,
             "error_t": error_t,
             "SNR_weight": SNR_weight,
             "loss_0_x": loss_0_x,
             "loss_0_cat": loss_0_cat,
             "loss_0_charge": loss_0_charge,
-            "neg_log_constants": neg_log_constants,
-            "kl_prior": kl_prior,
-            "log_pN": torch.zeros_like(kl_prior),
             "t_int": t_int.squeeze(),
             "net_eps_xh": net_eps_xh,
             "eps_xh": eps_xh,
         }
         return loss_terms
-
-    def delta_log_px(self, num_nodes):
-        return -self.subspace_dimensionality(num_nodes) * np.log(self.norm_values[0])
-
-    def subspace_dimensionality(self, input_size):
-        r"""
-        Compute the dimensionality on translation-invariant linear subspace
-        where distributions on x are defined.
-        """
-        return (input_size - 1) * self.pos_dim
 
     def noised_representation(
         self,
@@ -378,15 +338,14 @@ class EnVariationalDiffusion(nn.Module):
             representations[ii]["charge"] = representations[ii]["charge"][:, :1]
         # for ohe of atom types
         sigma_0 = self.schedule.sigma(gamma_t, target_tensor=z_t[0])
-        sigma_0_cat = sigma_0 * self.normalizer.norm_values[1]
+        sigma_0_cat = sigma_0
         atoms = [
-            self.normalizer.unnormalize(repr["one_hot"], ind=1)
-            for repr in representations
+            repr["one_hot"] for repr in representations
         ]
         est_atoms = [
-            self.normalizer.unnormalize(_z_t[:, self.pos_dim : -1], ind=1)
-            for _z_t in z_t
+            _z_t[:, self.pos_dim : -1] for _z_t in z_t
         ]
+
         centered_atoms = [_est_atoms - 1 for _est_atoms in est_atoms]
         log_ph_cat_proportionals = [
             torch.log(
@@ -421,13 +380,12 @@ class EnVariationalDiffusion(nn.Module):
         ]
 
         # for atom charge
-        sigma_0_charge = sigma_0 * self.normalizer.norm_values[2]
+        sigma_0_charge = sigma_0
         charges = [
-            self.normalizer.unnormalize(repr["charge"], ind=2)
-            for repr in representations
+            repr["charge"] for repr in representations
         ]
         est_charges = [
-            self.normalizer.unnormalize(_z_t[:, -1:], ind=2).long() for _z_t in z_t
+            _z_t[:, -1:].long() for _z_t in z_t
         ]
         for ii in range(len(representations)):
             assert charges[ii].size() == est_charges[ii].size()
@@ -490,7 +448,7 @@ class EnVariationalDiffusion(nn.Module):
         ]
         combined_mask = torch.cat(fragments_masks)
         edge_index = get_edges_index(combined_mask, remove_self_edge=True)
-        n_frag_switch = get_n_frag_switch(fragments_nodes)
+        atoms_mask_rtp = get_atoms_mask_rtp(fragments_nodes)
 
         zt_xh = self.sample_combined_position_feature_noise(masks=fragments_masks)
         if self.pos_only:
@@ -529,7 +487,7 @@ class EnVariationalDiffusion(nn.Module):
                 t=t_array,
                 zt_xh=zt_xh,
                 edge_index=edge_index,
-                n_frag_switch=n_frag_switch,
+                atoms_mask_rtp=atoms_mask_rtp,
                 masks=fragments_masks,
                 conditions=conditions,
                 fix_noise=False,
@@ -543,12 +501,12 @@ class EnVariationalDiffusion(nn.Module):
             # save frame
             if (s * return_frames) % timesteps == 0:
                 idx = (s * return_frames) // timesteps
-                out_samples[idx] = self.normalizer.unnormalize_z(zt_xh)
+                out_samples[idx] = zt_xh
 
         pos, cat, charge = self.sample_p_xh_given_z0(
             z0_xh=zt_xh,
             edge_index=edge_index,
-            n_frag_switch=n_frag_switch,
+            atoms_mask_rtp=atoms_mask_rtp,
             masks=fragments_masks,
             batch_size=n_samples,
             conditions=conditions,
@@ -576,7 +534,7 @@ class EnVariationalDiffusion(nn.Module):
         t: Tensor,
         zt_xh: List[Tensor],
         edge_index: Tensor,
-        n_frag_switch: Tensor,
+        atoms_mask_rtp: Tensor,
         masks: List[Tensor],
         conditions: Optional[Tensor] = None,
         fix_noise: bool = False,
@@ -601,7 +559,7 @@ class EnVariationalDiffusion(nn.Module):
             edge_index=edge_index,
             t=t,
             conditions=conditions,
-            n_frag_switch=n_frag_switch,
+            atoms_mask_rtp=atoms_mask_rtp,
             combined_mask=combined_mask,
             edge_attr=None,  # TODO: no edge_attr is considered now
         )
@@ -661,7 +619,7 @@ class EnVariationalDiffusion(nn.Module):
         self,
         z0_xh: List[Tensor],
         edge_index: Tensor,
-        n_frag_switch: Tensor,
+        atoms_mask_rtp: Tensor,
         masks: List[Tensor],
         batch_size: int,
         conditions: Optional[Tensor] = None,
@@ -677,7 +635,7 @@ class EnVariationalDiffusion(nn.Module):
             edge_index=edge_index,
             t=t_zeros,
             conditions=conditions,
-            n_frag_switch=n_frag_switch,
+            atoms_mask_rtp=atoms_mask_rtp,
             combined_mask=torch.cat(masks),
             edge_attr=None,  # TODO: no edge_attr is considered now
         )
@@ -694,15 +652,13 @@ class EnVariationalDiffusion(nn.Module):
         )
 
         pos_0 = [
-            self.normalizer.unnormalize(x0_xh[ii][:, : self.pos_dim], ii)
-            for ii in range(len(masks))
+            x0_xh[ii][:, : self.pos_dim] for ii in range(len(masks))
         ]
         cat_0 = [
-            self.normalizer.unnormalize(x0_xh[ii][:, self.pos_dim : -1], ii)
-            for ii in range(len(masks))
+            x0_xh[ii][:, self.pos_dim : -1] for ii in range(len(masks))
         ]
         charge_0 = [
-            torch.round(self.normalizer.unnormalize(x0_xh[ii][:, -1:], ii)).long()
+            torch.round(x0_xh[ii][:, -1:]).long()
             for ii in range(len(masks))
         ]
 
@@ -756,7 +712,7 @@ class EnVariationalDiffusion(nn.Module):
         ]
         combined_mask = torch.cat(fragments_masks)
         edge_index = get_edges_index(combined_mask, remove_self_edge=True)
-        n_frag_switch = get_n_frag_switch(fragments_nodes)
+        atoms_mask_rtp = get_atoms_mask_rtp(fragments_nodes)
 
         h0 = [_xh_fixed[:, self.pos_dim :].long() for _xh_fixed in xh_fixed]
 
@@ -819,7 +775,7 @@ class EnVariationalDiffusion(nn.Module):
                     t=t_array,
                     zt_xh=zt_xh,
                     edge_index=edge_index,
-                    n_frag_switch=n_frag_switch,
+                    atoms_mask_rtp=atoms_mask_rtp,
                     masks=fragments_masks,
                     conditions=conditions,
                     fix_noise=False,
@@ -871,7 +827,7 @@ class EnVariationalDiffusion(nn.Module):
         pos, cat, charge = self.sample_p_xh_given_z0(
             z0_xh=zt_xh,
             edge_index=edge_index,
-            n_frag_switch=n_frag_switch,
+            atoms_mask_rtp=atoms_mask_rtp,
             masks=fragments_masks,
             batch_size=n_samples,
             conditions=conditions,
@@ -921,7 +877,7 @@ class EnVariationalDiffusion(nn.Module):
         ]
         combined_mask = torch.cat(fragments_masks)
         edge_index = get_edges_index(combined_mask, remove_self_edge=True)
-        n_frag_switch = get_n_frag_switch(fragments_nodes)
+        atoms_mask_rtp = get_atoms_mask_rtp(fragments_nodes)
 
         h0 = [_xh_fixed[:, self.pos_dim :].long() for _xh_fixed in xh_fixed]
 
@@ -984,7 +940,7 @@ class EnVariationalDiffusion(nn.Module):
                     t=t_array,
                     zt_xh=zt_xh,
                     edge_index=edge_index,
-                    n_frag_switch=n_frag_switch,
+                    atoms_mask_rtp=atoms_mask_rtp,
                     masks=fragments_masks,
                     conditions=conditions,
                     fix_noise=False,
@@ -1036,7 +992,7 @@ class EnVariationalDiffusion(nn.Module):
         pos, cat, charge = self.sample_p_xh_given_z0(
             z0_xh=zt_xh,
             edge_index=edge_index,
-            n_frag_switch=n_frag_switch,
+            atoms_mask_rtp=atoms_mask_rtp,
             masks=fragments_masks,
             batch_size=n_samples,
             conditions=conditions,

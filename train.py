@@ -23,30 +23,13 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.strategies.ddp import DDPStrategy
 
 from oa.trainer.ema import EMACallback
-from oa.model import EGNN, LEFTNet, ConditionNet
+from oa.model import LEFTNet, ConditionNet, PaiNN
 
 
-model_type = "leftnet_condition"
-project = "condition_react"
-# ---EGNNDynamics---
-egnn_config = dict(
-    in_node_nf=8,  # embedded dim before injecting to egnn
-    in_edge_nf=0,
-    hidden_nf=256,
-    edge_hidden_nf=64,
-    act_fn="swish",
-    n_layers=9,
-    attention=True,
-    out_node_nf=None,
-    tanh=True,
-    coords_range=15.0,
-    norm_constant=1.0,
-    inv_sublayers=1,
-    sin_embedding=True,
-    normalization_factor=1.0,
-    aggregation_method="mean",
-)
-condition_config = dict(
+model_type = "painn"
+# ---Model---
+if model_type == "leftnet_condition":
+    condition_config = dict(
     pos_require_grad=False,
     cutoff=10.0, # fully connected
     num_layers=6,
@@ -61,19 +44,31 @@ condition_config = dict(
     object_aware=True,
     condition_in=2, # uncondition: None
     condition_emb_dim=4, # uncondition: None
-)
+    )
 
-if model_type == "leftnet_condition":
     model_config = condition_config
     model = ConditionNet
-elif model_type == "egnn":
-    model_config= egnn_config
-    model = EGNN
+elif model_type == 'painn':
+    model_config = dict(
+        num_feats=256,
+        out_channels=256,
+        in_hidden_channels=8,
+        cutoff=10.0,
+        n_rbf=96,
+        num_interactions=4,
+    )
+    model = PaiNN
+elif model_type == "oapainn":
+    model_config = None
+    model = None
+elif model_type == "oapainn_condition":
+    model_config = None
+    model = None
 else:
     raise KeyError("model type not implemented.")
 
 optimizer_config = dict(
-    lr=1e-4,
+    lr=2e-4,
     betas=[0.9, 0.999],
     weight_decay=0,
     amsgrad=True,
@@ -83,7 +78,7 @@ optimizer_config = dict(
 training_config = dict(
     datadir="oa/data/transition1x/",
     remove_h=False,
-    bz=20,
+    bz=32,
     num_workers=20,
     clip_grad=True,
     gradient_clip_val=None,
@@ -101,7 +96,6 @@ training_config = dict(
         step_size=100,
     ),  # step
 )
-training_data_frac = 1.0
 
 node_nfs: List[int] = [9] * 3  # 3 (pos) + 5 (cat) + 1 (charge)
 edge_nf: int = 0  # edge type
@@ -119,9 +113,6 @@ scales = [1.0, 2.0, 1.0]
 fixed_idx: Optional[List] = None
 eval_epochs = 5
 
-# ----Normalizer---
-norm_values: Tuple = (1.0, 1.0, 1.0)
-norm_biases: Tuple = (0.0, 0.0, 0.0)
 
 # ---Schedule---
 noise_schedule: str = 'polynomial_2'
@@ -142,8 +133,6 @@ ddpm = DDPMModule(
     update_pocket_coords,
     condition_time,
     edge_cutoff,
-    norm_values,
-    norm_biases,
     noise_schedule,
     timesteps,
     precision,
@@ -178,7 +167,7 @@ callbacks = [checkpoint_callback, progress_bar, lr_monitor]
 if training_config["ema"]:
     callbacks.append(EMACallback(decay=training_config["ema_decay"]))
 
-pprint(config)
+# pprint(config)
 
 devices = [0]
 strategy = DDPStrategy(find_unused_parameters=True)
@@ -187,26 +176,27 @@ if strategy is not None:
 if len(devices) == 1:
     strategy = None
 
-fast_dev_run = False
+fast_dev_run = True
 if not fast_dev_run:
     logger = TensorBoardLogger("tb_logs", name=f"{model_type}", version=job_id)
 else:
     logger = None
+    callbacks = None
 
 trainer = Trainer(
     fast_dev_run=fast_dev_run, 
     max_epochs=800,
-    accelerator="gpu",
+    # accelerator="gpu",
     deterministic=False,
     logger=logger,
-    devices=devices,
+    # devices=devices,
     strategy=strategy,
     log_every_n_steps=1,
     callbacks=callbacks,
     profiler=None,
     accumulate_grad_batches=1,
     gradient_clip_val=training_config["gradient_clip_val"],
-    limit_train_batches=1000000,
+    limit_train_batches=None,
     limit_val_batches=20,
     # max_time="00:10:00:00",
 )

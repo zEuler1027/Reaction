@@ -59,7 +59,7 @@ def get_subgraph_mask(edge_index: Tensor, n_frag_switch: Tensor) -> Tensor:
     return subgraph_mask.to(edge_index.device)
 
 
-def get_n_frag_switch(natm_list: List[Tensor]) -> Tensor:
+def get_atoms_mask_rtp(natm_list: List[Tensor]) -> Tensor:
     r"""Get the type of fragments to which each node belongs
     Example: [Tensor(1, 1), Tensor(2, 1)] -> [0, 0, 1, 1 ,1]
 
