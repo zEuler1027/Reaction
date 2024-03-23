@@ -167,7 +167,7 @@ callbacks = [checkpoint_callback, progress_bar, lr_monitor]
 if training_config["ema"]:
     callbacks.append(EMACallback(decay=training_config["ema_decay"]))
 
-# pprint(config)
+pprint(config)
 
 devices = [0]
 strategy = DDPStrategy(find_unused_parameters=True)
@@ -176,7 +176,7 @@ if strategy is not None:
 if len(devices) == 1:
     strategy = None
 
-fast_dev_run = True
+fast_dev_run = False
 if not fast_dev_run:
     logger = TensorBoardLogger("tb_logs", name=f"{model_type}", version=job_id)
 else:
@@ -186,10 +186,10 @@ else:
 trainer = Trainer(
     fast_dev_run=fast_dev_run, 
     max_epochs=800,
-    # accelerator="gpu",
+    accelerator="gpu",
     deterministic=False,
     logger=logger,
-    # devices=devices,
+    devices=devices,
     strategy=strategy,
     log_every_n_steps=1,
     callbacks=callbacks,
