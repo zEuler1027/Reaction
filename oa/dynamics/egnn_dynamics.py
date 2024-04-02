@@ -150,7 +150,7 @@ class EGNNDynamics(BaseDynamics):
         h_final = h_final[:, :-condition_dim]
 
         frag_index = self.compute_frag_index(atoms_mask_rtp)
-        print(frag_index)
+
         xh_final = [
             torch.cat(
                 [

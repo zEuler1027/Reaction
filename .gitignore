@@ -7,3 +7,4 @@ __pycache__/
 wandb/
 tb_logs/
 *.sh
+*.ipynb

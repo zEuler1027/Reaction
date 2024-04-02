@@ -26,7 +26,7 @@ from oa.trainer.ema import EMACallback
 from oa.model import LEFTNet, ConditionNet, PaiNN
 
 
-model_type = "painn"
+model_type = "leftnet_condition"
 # ---Model---
 if model_type == "leftnet_condition":
     condition_config = dict(
@@ -78,7 +78,7 @@ optimizer_config = dict(
 training_config = dict(
     datadir="oa/data/transition1x/",
     remove_h=False,
-    bz=32,
+    bz=16,
     num_workers=20,
     clip_grad=True,
     gradient_clip_val=None,

@@ -1,5 +1,6 @@
 from typing import List
 import numpy as np
+import math
 
 from pymatgen.core import Molecule
 from pymatgen.analysis.molecule_matcher import (
@@ -35,7 +36,7 @@ def rmsd_core(mol1, mol2, threshold=0.5, same_order=False):
         return rmsd
     total_permutations = 1
     for c in count:
-        total_permutations *= np.math.factorial(c)  # type: ignore
+        total_permutations *= math.factorial(c)  # type: ignore
     if total_permutations < 1e4:
         bfm = BruteForceOrderMatcher(mol1)
         _, rmsd = bfm.fit(mol2)

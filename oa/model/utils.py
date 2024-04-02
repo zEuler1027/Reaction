@@ -44,7 +44,7 @@ class ScaledSiLU(torch.nn.Module):
         self.scale_factor = 1 / 0.6
         self._activation = torch.nn.SiLU()
 
-    def forward(self, x):
+    def forward(self, x) -> Tensor:
         return self._activation(x) * self.scale_factor
 
 

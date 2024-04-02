@@ -4,4 +4,4 @@ from .core import MLP
 from .util_funcs import coord2diff, move_by_com
 from .leftnet import LEFTNet
 from .leftnet_condition import ConditionNet
-from .painn import PaiNN, OAPaiNN, OAPaiNNCondition
+from .painn import PaiNN, OAPaiNN
