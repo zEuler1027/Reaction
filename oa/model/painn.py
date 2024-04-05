@@ -3,13 +3,130 @@ from typing import Dict, Optional, Tuple, Union
 
 import torch
 from torch import nn
-from torch_geometric.nn import MessagePassing
+from torch_geometric.nn.conv import MessagePassing
 from torch_scatter import scatter, segment_coo
 
 from oa.model.utils import ScaledSiLU, AtomEmbedding, RadialBasis
 
 class OAPaiNN(torch.nn.Module):
-    pass 
+    def __init__(
+            self,
+            in_hidden_channels: int = 8,
+            hidden_channels: int = 512,
+            out_channels: int = 8,
+            num_layers: int = 6,
+            num_rbf: int = 128,
+            cutoff: float = 10.0,
+            rbf: Dict[str, str] = {'name': 'gaussian'},
+            envelope: Dict[str, Union[str, float]] = {
+                'name': 'polynomial',
+                'exponent': 5,
+            },
+            num_elements: int = 83,
+            **kwargs,
+    ):
+        super(OAPaiNN, self).__init__() 
+
+        self.hidden_channels = hidden_channels
+        self.num_layers = num_layers
+        self.num_rbf = num_rbf
+        self.cutoff = cutoff
+
+        self.atom_emb = AtomEmbedding(hidden_channels, num_elements)
+        self.embedding = nn.Linear(in_hidden_channels, hidden_channels)
+        self.radial_basis = RadialBasis(
+            num_radial=num_rbf,
+            cutoff=self.cutoff,
+            envelope=envelope,
+            rbf=rbf,
+        )
+        self.global_radial_basis = RadialBasis(
+            num_radial=num_rbf,
+            cutoff=self.cutoff,
+            envelope=envelope,
+            rbf=rbf,
+        )
+        
+        self.message_layers = nn.ModuleList()
+        self.update_layers = nn.ModuleList()
+        # added by sz, for global message
+        self.global_message_layers = nn.ModuleList()
+
+        for _ in range(num_layers):
+            self.global_message_layers.append(
+                ScalarMessage(hidden_channels, num_rbf)
+            )
+            self.message_layers.append(
+                PaiNNMessage(hidden_channels, num_rbf)
+            )
+            self.update_layers.append(
+                PaiNNUpdate(hidden_channels)
+            )
+            
+        self.out_xh = nn.Sequential(
+            nn.Linear(hidden_channels, hidden_channels // 2),
+            ScaledSiLU(),
+            nn.Linear(hidden_channels // 2, out_channels),
+        )
+
+        self.out_dpos = PaiNNOutput(hidden_channels)
+
+        self.inv_sqrt_2 = 1 / math.sqrt(2.0)
+        self.reset_parameters()
+
+    def reset_parameters(self) -> None:
+        nn.init.xavier_uniform_(self.out_xh[0].weight)
+        self.out_xh[0].bias.data.fill_(0)
+        nn.init.xavier_uniform_(self.out_xh[2].weight)
+        self.out_xh[2].bias.data.fill_(0)
+
+    def forward(self, xh, pos ,edge_index, **kwargs):
+        subgraph_mask = kwargs.get('subgraph_mask', None).long()
+
+        global_edge_index = edge_index.clone()
+        edge_index = edge_index[:, subgraph_mask.squeeze().bool()]
+
+        x = self.embedding(xh)
+        vec = torch.zeros(x.size(0), 3, x.size(1)).to(x.device)
+
+        diff = pos[edge_index[0]] - pos[edge_index[1]]
+        dist = torch.norm(diff, p=2, dim=1)
+        edge_rbf = self.radial_basis(dist)
+
+        global_diff = pos[global_edge_index[0]] - pos[global_edge_index[1]]
+        global_dist = torch.norm(global_diff, p=2, dim=1)
+        global_edge_rbf = self.global_radial_basis(global_dist) * subgraph_mask
+        
+        for i in range(self.num_layers):
+            s = self.global_message_layers[i](
+                x,
+                global_edge_index,
+                global_edge_rbf,
+            )
+            x = x + s
+
+            dx, dvec = self.message_layers[i](
+                x,
+                vec,
+                edge_index,
+                edge_rbf,
+                diff,
+            )
+            x = x + dx
+            vec = vec + dvec
+            x = x * self.inv_sqrt_2
+
+            dx, dvec = self.update_layers[i](x, vec)
+            x = x + dx
+            vec = vec + dvec
+            x = x * self.inv_sqrt_2
+
+        xh = self.out_xh(x).squeeze(1)
+        dpos = self.out_dpos(x, vec)
+        pos = pos + dpos
+
+        return xh, pos, None
+    
 
 
 class PaiNN(torch.nn.Module):
@@ -27,6 +144,7 @@ class PaiNN(torch.nn.Module):
                 'exponent': 5,
             },
             num_elements: int = 83,
+            **kwargs,
     ):
         super(PaiNN, self).__init__() 
 
@@ -49,7 +167,7 @@ class PaiNN(torch.nn.Module):
 
         for _ in range(num_layers):
             self.message_layers.append(
-                torch.jit.script(PaiNNMessage(hidden_channels, num_rbf))
+                PaiNNMessage(hidden_channels, num_rbf)
             )
             self.update_layers.append(
                 PaiNNUpdate(hidden_channels)
@@ -74,7 +192,7 @@ class PaiNN(torch.nn.Module):
 
     def forward(self, xh, pos ,edge_index, **kargs):
         x = self.embedding(xh)
-        vec = torch.zeros(x.size(0), 3, x.size(1))
+        vec = torch.zeros(x.size(0), 3, x.size(1)).to(x.device)
 
         diff = pos[edge_index[0]] - pos[edge_index[1]]
         dist = torch.norm(diff, p=2, dim=1)
@@ -136,7 +254,15 @@ class PaiNNMessage(MessagePassing):
         self.rbf_proj.bias.data.fill_(0)
         self.x_layernorm.reset_parameters()
 
-    def forward(self, x, vec, edge_index, edge_rbf, edge_vector):
+    def forward(
+            self,
+            x: torch.Tensor,
+            vec: torch.Tensor, 
+            edge_index: torch.Tensor, 
+            edge_rbf:torch.Tensor, 
+            edge_vector: torch.Tensor,
+            ):
+        
         xh = self.x_proj(self.x_layernorm(x))
 
         # TODO(@abhshkdz): Nans out with AMP here during backprop. Debug / fix.
@@ -178,6 +304,89 @@ class PaiNNMessage(MessagePassing):
     def update(
         self, inputs: Tuple[torch.Tensor, torch.Tensor]
     ) -> Tuple[torch.Tensor, torch.Tensor]:
+        return inputs
+
+
+class ScalarMessage(MessagePassing):
+    def __init__(
+        self,
+        hidden_channels,
+        num_rbf,
+    ) -> None:
+        super(ScalarMessage, self).__init__(aggr="add", node_dim=0)
+
+        self.hidden_channels = hidden_channels
+
+        self.x_proj = nn.Sequential(
+            nn.Linear(hidden_channels, hidden_channels),
+            ScaledSiLU(),
+            nn.Linear(hidden_channels, hidden_channels * 3),
+        )
+        self.rbf_proj = nn.Linear(num_rbf, hidden_channels * 3)
+
+        self.x_layernorm = nn.LayerNorm(hidden_channels)
+
+        self.x_out = nn.Sequential(
+            nn.Linear(hidden_channels * 3, hidden_channels * 2),
+            ScaledSiLU(),
+            nn.Linear(hidden_channels * 2, hidden_channels),
+        )
+
+        self.reset_parameters()
+
+    def reset_parameters(self) -> None:
+        nn.init.xavier_uniform_(self.x_proj[0].weight)
+        self.x_proj[0].bias.data.fill_(0)
+        nn.init.xavier_uniform_(self.x_proj[2].weight)
+        self.x_proj[2].bias.data.fill_(0)
+        nn.init.xavier_uniform_(self.rbf_proj.weight)
+        self.rbf_proj.bias.data.fill_(0)
+        self.x_layernorm.reset_parameters()
+        nn.init.xavier_uniform_(self.x_out[0].weight)
+        self.x_out[0].bias.data.fill_(0)
+        nn.init.xavier_uniform_(self.x_out[2].weight)
+        self.x_out[2].bias.data.fill_(0)
+
+    def forward(
+            self,
+            x: torch.Tensor,
+            edge_index: torch.Tensor, 
+            edge_rbf:torch.Tensor, 
+            ):
+        
+        xh = self.x_proj(self.x_layernorm(x))
+
+        # TODO(@abhshkdz): Nans out with AMP here during backprop. Debug / fix.
+        rbfh = self.rbf_proj(edge_rbf)
+
+        # propagate_type: (xh: Tensor, vec: Tensor, rbfh_ij: Tensor, r_ij: Tensor)
+        ds = self.propagate(
+            edge_index,
+            xh=xh,
+            rbfh_ij=rbfh,
+            size=None,
+        )
+
+        return ds
+
+    def message(self, xh_j, rbfh_ij):
+        x = torch.split(xh_j * rbfh_ij, self.hidden_channels, dim=-1)[0]
+        return x
+
+    def aggregate(
+        self,
+        features: torch.Tensor,
+        index: torch.Tensor,
+        ptr: Optional[torch.Tensor],
+        dim_size: Optional[int],
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        x = features
+        x = scatter(x, index, dim=self.node_dim, dim_size=dim_size)
+        return x
+
+    def update(
+        self, inputs: torch.Tensor,
+    ) -> torch.Tensor:
         return inputs
 
 

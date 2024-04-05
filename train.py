@@ -26,7 +26,7 @@ from oa.trainer.ema import EMACallback
 from oa.model import LEFTNet, ConditionNet, PaiNN
 
 
-model_type = "leftnet_condition"
+model_type = "painn"
 # ---Model---
 if model_type == "leftnet_condition":
     condition_config = dict(
@@ -48,22 +48,22 @@ if model_type == "leftnet_condition":
 
     model_config = condition_config
     model = ConditionNet
+
 elif model_type == 'painn':
     model_config = dict(
-        num_feats=256,
-        out_channels=256,
-        in_hidden_channels=8,
+        in_hidden_channels=7,
+        hidden_channels=1024,
+        out_channels=7,
+        num_layers=8,
+        num_rbf=256,
         cutoff=10.0,
-        n_rbf=96,
-        num_interactions=4,
     )
     model = PaiNN
+
 elif model_type == "oapainn":
     model_config = None
     model = None
-elif model_type == "oapainn_condition":
-    model_config = None
-    model = None
+
 else:
     raise KeyError("model type not implemented.")
 
@@ -78,8 +78,8 @@ optimizer_config = dict(
 training_config = dict(
     datadir="oa/data/transition1x/",
     remove_h=False,
-    bz=16,
-    num_workers=20,
+    bz=24,
+    num_workers=0,
     clip_grad=True,
     gradient_clip_val=None,
     ema=False,
@@ -88,7 +88,7 @@ training_config = dict(
     append_frag=False,
     use_by_ind=True,
     reflection=False,
-    single_frag_only=False,
+    single_frag_only=True,
     only_ts=False,
     lr_schedule_type=None,
     lr_schedule_config=dict(
@@ -99,7 +99,7 @@ training_config = dict(
 
 node_nfs: List[int] = [9] * 3  # 3 (pos) + 5 (cat) + 1 (charge)
 edge_nf: int = 0  # edge type
-condition_nf: int = 1
+condition_nf: int = 0
 fragment_names: List[str] = ["R", "TS", "P"]
 pos_dim: int = 3
 update_pocket_coords: bool = True
@@ -176,7 +176,7 @@ if strategy is not None:
 if len(devices) == 1:
     strategy = None
 
-fast_dev_run = False
+fast_dev_run = True
 if not fast_dev_run:
     logger = TensorBoardLogger("tb_logs", name=f"{model_type}", version=job_id)
 else:
@@ -185,11 +185,11 @@ else:
 
 trainer = Trainer(
     fast_dev_run=fast_dev_run, 
-    max_epochs=800,
-    accelerator="gpu",
+    max_epochs=1000,
+    #accelerator='gpu',
     deterministic=False,
     logger=logger,
-    devices=devices,
+    #devices=devices,
     strategy=strategy,
     log_every_n_steps=1,
     callbacks=callbacks,

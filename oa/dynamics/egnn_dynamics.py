@@ -142,7 +142,7 @@ class EGNNDynamics(BaseDynamics):
         if torch.any(torch.isnan(vel)):
             print("Warning: detected nan in pos, resetting EGNN output to randn.")
             vel = torch.randn_like(vel)
-            raise ValueError("nan in pos") # explosion in gradient causes a nan
+            # raise ValueError("nan in pos") # explosion in gradient causes a nan
         if torch.any(torch.isnan(vel)):
             print("Warning: detected nan in h, resetting EGNN output to randn.")
             h_final = torch.randn_like(h_final)

@@ -241,7 +241,6 @@ class DDPMModule(LightningModule):
             info[f"error_t_{ii}"] = error_t_normalized[ii].mean().item() / (
                 self.scales[ii] + 1e-4
             )
-            info[f"unorm_error_t_{ii}"] = loss_terms["error_t"][ii].mean().item()
 
         return nll, info
 
