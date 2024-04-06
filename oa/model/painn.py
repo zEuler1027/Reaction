@@ -351,8 +351,8 @@ class ScalarMessage(MessagePassing):
         self.node_mlp[2].bias.data.fill_(0)
 
     def forward(
-            self,
-            x: torch.Tensor,
+            self, 
+            x: torch.Tensor, 
             edge_index: torch.Tensor, 
             edge_rbf:torch.Tensor, 
             ):

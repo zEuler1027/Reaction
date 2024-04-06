@@ -26,7 +26,7 @@ from oa.trainer.ema import EMACallback
 from oa.model import LEFTNet, ConditionNet, PaiNN, OAPaiNN
 
 
-model_type = "painn"
+model_type = "oapainn"
 # ---Model---
 if model_type == "leftnet_condition":
     condition_config = dict(
@@ -63,7 +63,7 @@ elif model_type == 'painn':
 elif model_type == "oapainn":
     model_config = dict(
         in_hidden_channels=7,
-        hidden_channels=512,
+        hidden_channels=1024,
         out_channels=7,
         num_layers=6,
         num_rbf=256,
@@ -75,7 +75,7 @@ else:
     raise KeyError("model type not implemented.")
 
 optimizer_config = dict(
-    lr=5e-4,
+    lr=10e-4,
     betas=[0.9, 0.999],
     weight_decay=0,
     amsgrad=True,
