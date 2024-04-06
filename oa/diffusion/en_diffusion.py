@@ -157,31 +157,10 @@ class EnVariationalDiffusion(nn.Module):
         # cross entropy term E_q(z0 | x) [log p(x | z0)].
 
         if self.training:
-            # Computes the L_0 term (even if gamma_t is not actually gamma_0)
-            # and this will later be selected via masking.
-            log_p_h_given_z0 = self.log_pxh_given_z0_without_constants(
-                representations=representations,
-                z_t=z_t,
-                eps_xh=eps_xh,
-                net_eps_xh=net_eps_xh,
-                gamma_t=gamma_t,
-                epsilon=1e-10,
-            )
-            loss_0_x = [
-                -_log_p_fragment * t_is_zero.squeeze()
-                for _log_p_fragment in log_p_h_given_z0[0]
-            ]
-            loss_0_cat = [
-                -_log_p_fragment * t_is_zero.squeeze()
-                for _log_p_fragment in log_p_h_given_z0[1]
-            ]
-            loss_0_charge = [
-                -_log_p_fragment * t_is_zero.squeeze()
-                for _log_p_fragment in log_p_h_given_z0[2]
-            ]
 
             # apply t_is_zero mask
             error_t = [_error_t * t_is_not_zero.squeeze() for _error_t in error_t]
+            loss_0_x = None
 
         else:
             # Compute noise values for t = 0.
@@ -211,17 +190,11 @@ class EnVariationalDiffusion(nn.Module):
                 epsilon=1e-10,
             )
             loss_0_x = [-_log_p_fragment for _log_p_fragment in log_p_h_given_z0[0]]
-            loss_0_cat = [-_log_p_fragment for _log_p_fragment in log_p_h_given_z0[1]]
-            loss_0_charge = [
-                -_log_p_fragment for _log_p_fragment in log_p_h_given_z0[2]
-            ]
 
         loss_terms = {
             "error_t": error_t,
             "SNR_weight": SNR_weight,
             "loss_0_x": loss_0_x,
-            "loss_0_cat": loss_0_cat,
-            "loss_0_charge": loss_0_charge,
             "t_int": t_int.squeeze(),
             "net_eps_xh": net_eps_xh,
             "eps_xh": eps_xh,
@@ -316,7 +289,7 @@ class EnVariationalDiffusion(nn.Module):
         net_eps_xh: List[Tensor],
         gamma_t: Tensor,
         epsilon: float = 1e-10,
-    ) -> List[List[Tensor]]:
+    ) -> List[Tensor]:
         # Compute sigma_0 and rescale to the integer scale of the data.
         # for pos
         log_p_x_given_z0_without_constants = [
@@ -332,95 +305,7 @@ class EnVariationalDiffusion(nn.Module):
             for ii in range(len(representations))
         ]
 
-        # only keep first several elements
-        z_t = [_z_t[:, : 3 + 5 + 1] for _z_t in z_t]
-        for ii, repr in enumerate(representations):
-            representations[ii]["charge"] = representations[ii]["charge"][:, :1]
-        # for ohe of atom types
-        sigma_0 = self.schedule.sigma(gamma_t, target_tensor=z_t[0])
-        sigma_0_cat = sigma_0
-        atoms = [
-            repr["one_hot"] for repr in representations
-        ]
-        est_atoms = [
-            _z_t[:, self.pos_dim : -1] for _z_t in z_t
-        ]
-
-        centered_atoms = [_est_atoms - 1 for _est_atoms in est_atoms]
-        log_ph_cat_proportionals = [
-            torch.log(
-                utils.cdf_standard_gaussian(
-                    (centered_atoms[ii] + 0.5)
-                    / sigma_0_cat[representations[ii]["mask"]]
-                )
-                - utils.cdf_standard_gaussian(
-                    (centered_atoms[ii] - 0.5)
-                    / sigma_0_cat[representations[ii]["mask"]]
-                )
-                + epsilon
-            )
-            for ii in range(len(representations))
-        ]
-        log_probabilities = [
-            _log_ph_cat_proportionals
-            - torch.logsumexp(
-                _log_ph_cat_proportionals,
-                dim=1,
-                keepdim=True,
-            )
-            for _log_ph_cat_proportionals in log_ph_cat_proportionals
-        ]
-        log_p_hcat_given_z0 = [
-            utils.sum_except_batch(
-                log_probabilities[ii] * atoms[ii],
-                representations[ii]["mask"],
-                dim_size=representations[0]["size"].size(0),
-            )
-            for ii in range(len(representations))
-        ]
-
-        # for atom charge
-        sigma_0_charge = sigma_0
-        charges = [
-            repr["charge"] for repr in representations
-        ]
-        est_charges = [
-            _z_t[:, -1:].long() for _z_t in z_t
-        ]
-        for ii in range(len(representations)):
-            assert charges[ii].size() == est_charges[ii].size()
-        centered_charges = [
-            charges[ii] - est_charges[ii] for ii in range(len(representations))
-        ]
-        log_ph_charge_proportionals = [
-            torch.log(
-                utils.cdf_standard_gaussian(
-                    (centered_charges[ii] + 0.5)
-                    / sigma_0_charge[representations[ii]["mask"]]
-                )
-                - utils.cdf_standard_gaussian(
-                    (centered_charges[ii] - 0.5)
-                    / sigma_0_charge[representations[ii]["mask"]]
-                )
-                + epsilon
-            )
-            for ii in range(len(representations))
-        ]
-        log_p_hcharge_given_z0 = [
-            utils.sum_except_batch(
-                log_ph_charge_proportionals[ii],
-                representations[ii]["mask"],
-                dim_size=representations[0]["size"].size(0),
-            )
-            for ii in range(len(representations))
-        ]
-
-        log_p_h_given_z0 = [
-            log_p_x_given_z0_without_constants,
-            log_p_hcat_given_z0,
-            log_p_hcharge_given_z0,
-        ]
-        return log_p_h_given_z0
+        return log_p_x_given_z0_without_constants
 
     # ------ INVERSE PASS ------
 

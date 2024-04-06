@@ -313,20 +313,22 @@ class ScalarMessage(MessagePassing):
         hidden_channels,
         num_rbf,
     ) -> None:
-        super(ScalarMessage, self).__init__(aggr="add", node_dim=0)
+        super(ScalarMessage, self).__init__(aggr="mean", node_dim=0)
 
         self.hidden_channels = hidden_channels
+        self.inv_sqrt_3 = 1 / math.sqrt(3.0)
+        self.inv_sqrt_h = 1 / math.sqrt(hidden_channels)
 
-        self.x_proj = nn.Sequential(
-            nn.Linear(hidden_channels, hidden_channels),
-            ScaledSiLU(),
-            nn.Linear(hidden_channels, hidden_channels * 3),
-        )
-        self.rbf_proj = nn.Linear(num_rbf, hidden_channels * 3)
+        self.rbf_proj = nn.Linear(num_rbf, hidden_channels)
 
         self.x_layernorm = nn.LayerNorm(hidden_channels)
 
-        self.x_out = nn.Sequential(
+        self.edge_mlp = nn.Sequential(
+            nn.Linear(hidden_channels * 3, hidden_channels * 3),
+            ScaledSiLU(),
+            nn.Linear(hidden_channels * 3, hidden_channels * 3),
+        )
+        self.node_mlp = nn.Sequential(
             nn.Linear(hidden_channels * 3, hidden_channels * 2),
             ScaledSiLU(),
             nn.Linear(hidden_channels * 2, hidden_channels),
@@ -335,17 +337,18 @@ class ScalarMessage(MessagePassing):
         self.reset_parameters()
 
     def reset_parameters(self) -> None:
-        nn.init.xavier_uniform_(self.x_proj[0].weight)
-        self.x_proj[0].bias.data.fill_(0)
-        nn.init.xavier_uniform_(self.x_proj[2].weight)
-        self.x_proj[2].bias.data.fill_(0)
         nn.init.xavier_uniform_(self.rbf_proj.weight)
         self.rbf_proj.bias.data.fill_(0)
         self.x_layernorm.reset_parameters()
-        nn.init.xavier_uniform_(self.x_out[0].weight)
-        self.x_out[0].bias.data.fill_(0)
-        nn.init.xavier_uniform_(self.x_out[2].weight)
-        self.x_out[2].bias.data.fill_(0)
+
+        nn.init.xavier_uniform_(self.edge_mlp[0].weight)
+        self.edge_mlp[0].bias.data.fill_(0)
+        nn.init.xavier_uniform_(self.edge_mlp[2].weight)
+        self.edge_mlp[2].bias.data.fill_(0)
+        nn.init.xavier_uniform_(self.node_mlp[0].weight)
+        self.node_mlp[0].bias.data.fill_(0)
+        nn.init.xavier_uniform_(self.node_mlp[2].weight)
+        self.node_mlp[2].bias.data.fill_(0)
 
     def forward(
             self,
@@ -354,7 +357,7 @@ class ScalarMessage(MessagePassing):
             edge_rbf:torch.Tensor, 
             ):
         
-        xh = self.x_proj(self.x_layernorm(x))
+        xh = self.x_layernorm(x)
 
         # TODO(@abhshkdz): Nans out with AMP here during backprop. Debug / fix.
         rbfh = self.rbf_proj(edge_rbf)
@@ -369,9 +372,11 @@ class ScalarMessage(MessagePassing):
 
         return ds
 
-    def message(self, xh_j, rbfh_ij):
-        x = torch.split(xh_j * rbfh_ij, self.hidden_channels, dim=-1)[0]
-        return x
+    def message(self, xh_i, xh_j, rbfh_ij):
+        mij = torch.cat([xh_i, xh_j, rbfh_ij], dim=1)
+        edge_weight = self.edge_mlp(mij)
+        mij =  (mij + edge_weight) * self.inv_sqrt_3
+        return mij
 
     def aggregate(
         self,
@@ -380,14 +385,14 @@ class ScalarMessage(MessagePassing):
         ptr: Optional[torch.Tensor],
         dim_size: Optional[int],
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        x = features
-        x = scatter(x, index, dim=self.node_dim, dim_size=dim_size)
+        x = scatter(features, index, dim=self.node_dim, dim_size=dim_size, reduce='mean')
         return x
 
     def update(
         self, inputs: torch.Tensor,
     ) -> torch.Tensor:
-        return inputs
+        x = self.node_mlp(inputs)
+        return x
 
 
 class PaiNNUpdate(nn.Module):
@@ -515,5 +520,27 @@ class GatedEquivariantBlock(nn.Module):
         return x, v
 
 if __name__ == '__main__':
-    model = PaiNN()
-    print(model)
+    model = OAPaiNN()
+    s0 = torch.rand(9, 8, dtype=torch.float32)
+    from torch_geometric.nn import radius_graph
+    pos = torch.tensor([[ 0.0072, -0.5687,  0.0000],
+        [-1.2854,  0.2499,  0.0000],
+        [ 1.1304,  0.3147,  0.0000],
+        [ 0.0392, -1.1972,  0.8900],
+        [ 0.0392, -1.1972, -0.8900],
+        [-1.3175,  0.8784,  0.8900],
+        [-1.3175,  0.8784, -0.8900],
+        [-2.1422, -0.4239,  0.0000],
+        [ 1.9857, -0.1365,  0.0000]], dtype = torch.float)
+
+    edge_index = radius_graph(pos, r=1.70, batch=None, loop=False)
+    subgraph_mask = torch.tensor([1, 1, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0], dtype=torch.long)[:, None]
+    out = model(s0, pos, edge_index, subgraph_mask=subgraph_mask)
+    from e3nn import o3
+    rot = o3.rand_matrix()
+    pos_rot = pos
+    pos_rot[:4] = pos[:4] @ rot
+    out_rot = model(s0, pos_rot, edge_index, subgraph_mask=subgraph_mask)
+    out[1][:4] = out[1][:4] @ rot
+    print((out[1] - out_rot[1]).max())
+    print((out[0] - out_rot[0]).max())

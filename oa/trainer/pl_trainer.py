@@ -202,22 +202,11 @@ class DDPMModule(LightningModule):
             loss_terms["error_t"][ii] / denoms[ii] * self.scales[ii]
             for ii in range(self.n_fragments)
         ]
+
         if self.loss_type == "l2" and self.training:
             # normalize loss_t
             loss_t = torch.stack(error_t_normalized, dim=0).sum(dim=0)
-
-            # normalize loss_0
-            loss_0_x = [
-                loss_terms["loss_0_x"][ii]
-                * self.scales[ii]
-                / (self.ddpm.pos_dim * representations[ii]["size"])
-                for ii in range(self.n_fragments)
-            ]
-            loss_0_x = torch.stack(loss_0_x, dim=0).sum(dim=0)
-            loss_0_cat = torch.stack(loss_terms["loss_0_cat"], dim=0).sum(dim=0)
-            loss_0_charge = torch.stack(loss_terms["loss_0_charge"], dim=0).sum(dim=0)
-            loss_0 = loss_0_x + loss_0_cat + loss_0_charge
-
+            nll = loss_t
         # VLB objective or evaluation step
         else:
             # Note: SNR_weight should be negative
@@ -228,13 +217,8 @@ class DDPMModule(LightningModule):
             loss_t = torch.stack(error_t, dim=0).sum(dim=0)
 
             loss_0_x = torch.stack(loss_terms["loss_0_x"], dim=0).sum(dim=0)
-            loss_0_cat = torch.stack(loss_terms["loss_0_cat"], dim=0).sum(dim=0)
-            loss_0_charge = torch.stack(loss_terms["loss_0_charge"], dim=0).sum(dim=0)
-            loss_0 = (
-                loss_0_x + loss_0_cat + loss_0_charge
-            )
 
-        nll = loss_t + loss_0 
+            nll = loss_t + loss_0_x 
         # nll = loss_t
 
         for ii in range(self.n_fragments):

@@ -23,7 +23,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.strategies.ddp import DDPStrategy
 
 from oa.trainer.ema import EMACallback
-from oa.model import LEFTNet, ConditionNet, PaiNN
+from oa.model import LEFTNet, ConditionNet, PaiNN, OAPaiNN
 
 
 model_type = "painn"
@@ -54,21 +54,28 @@ elif model_type == 'painn':
         in_hidden_channels=7,
         hidden_channels=1024,
         out_channels=7,
-        num_layers=8,
+        num_layers=6,
         num_rbf=256,
         cutoff=10.0,
     )
     model = PaiNN
 
 elif model_type == "oapainn":
-    model_config = None
-    model = None
+    model_config = dict(
+        in_hidden_channels=7,
+        hidden_channels=512,
+        out_channels=7,
+        num_layers=6,
+        num_rbf=256,
+        cutoff=10.0,
+    )
+    model = OAPaiNN
 
 else:
     raise KeyError("model type not implemented.")
 
 optimizer_config = dict(
-    lr=2e-4,
+    lr=5e-4,
     betas=[0.9, 0.999],
     weight_decay=0,
     amsgrad=True,
@@ -176,7 +183,7 @@ if strategy is not None:
 if len(devices) == 1:
     strategy = None
 
-fast_dev_run = True
+fast_dev_run = False
 if not fast_dev_run:
     logger = TensorBoardLogger("tb_logs", name=f"{model_type}", version=job_id)
 else:
@@ -186,10 +193,10 @@ else:
 trainer = Trainer(
     fast_dev_run=fast_dev_run, 
     max_epochs=1000,
-    #accelerator='gpu',
+    accelerator='gpu',
     deterministic=False,
     logger=logger,
-    #devices=devices,
+    devices=devices,
     strategy=strategy,
     log_every_n_steps=1,
     callbacks=callbacks,
