@@ -2,7 +2,7 @@ checkpoint/
 lightning_logs/
 *.out
 *.slurm
-__pycache__/
+**/__pycache__/
 *.pyc
 wandb/
 tb_logs/

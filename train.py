@@ -75,7 +75,7 @@ else:
     raise KeyError("model type not implemented.")
 
 optimizer_config = dict(
-    lr=10e-4,
+    lr=5e-4,
     betas=[0.9, 0.999],
     weight_decay=0,
     amsgrad=True,
@@ -85,7 +85,7 @@ optimizer_config = dict(
 training_config = dict(
     datadir="oa/data/transition1x/",
     remove_h=False,
-    bz=24,
+    bz=12,
     num_workers=0,
     clip_grad=True,
     gradient_clip_val=None,
@@ -192,7 +192,7 @@ else:
 
 trainer = Trainer(
     fast_dev_run=fast_dev_run, 
-    max_epochs=1000,
+    max_epochs=2000,
     accelerator='gpu',
     deterministic=False,
     logger=logger,
