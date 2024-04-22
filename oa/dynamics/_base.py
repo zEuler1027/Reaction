@@ -76,7 +76,7 @@ class BaseDynamics(nn.Module):
             self.embed_dim -= condition_nf
         assert self.embed_dim > 0
 
-        self.build_encoders_decoders(enforce_same_encoding, source)
+        # self.build_encoders_decoders(enforce_same_encoding, source)
         del source
 
     def build_encoders_decoders(

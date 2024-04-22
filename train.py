@@ -63,9 +63,9 @@ elif model_type == 'painn':
 elif model_type == "oapainn":
     model_config = dict(
         in_hidden_channels=7,
-        hidden_channels=1024,
+        hidden_channels=256,
         out_channels=7,
-        num_layers=6,
+        num_layers=8,
         num_rbf=256,
         cutoff=10.0,
     )
@@ -85,7 +85,7 @@ optimizer_config = dict(
 training_config = dict(
     datadir="oa/data/transition1x/",
     remove_h=False,
-    bz=12,
+    bz=32,
     num_workers=0,
     clip_grad=True,
     gradient_clip_val=None,
@@ -97,10 +97,10 @@ training_config = dict(
     reflection=False,
     single_frag_only=True,
     only_ts=False,
-    lr_schedule_type=None,
+    lr_schedule_type='step',
     lr_schedule_config=dict(
         gamma=0.8,
-        step_size=100,
+        step_size=500,
     ),  # step
 )
 
@@ -118,7 +118,7 @@ process_type = "TS1x"
 enforce_same_encoding = None
 scales = [1.0, 2.0, 1.0]
 fixed_idx: Optional[List] = None
-eval_epochs = 5
+eval_epochs = 10
 
 
 # ---Schedule---
@@ -192,7 +192,7 @@ else:
 
 trainer = Trainer(
     fast_dev_run=fast_dev_run, 
-    max_epochs=2000,
+    max_epochs=4000,
     accelerator='gpu',
     deterministic=False,
     logger=logger,

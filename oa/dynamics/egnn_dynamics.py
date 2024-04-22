@@ -93,15 +93,14 @@ class EGNNDynamics(BaseDynamics):
             [_xh[:, : self.pos_dim].clone() for _xh in xh],
             dim=0,
         )
+
         h = torch.concat(
             [
-                self.encoders[ii](xh[ii][:, self.pos_dim :].clone())
+                xh[ii][:, self.pos_dim :].clone()
                 for ii, name in enumerate(self.fragment_names)
             ],
             dim=0,
         )
-        if self.edge_encoder is not None:
-            edge_attr = self.edge_encoder(edge_attr) 
 
         condition_dim = 0
         if self.condition_time:
@@ -158,7 +157,7 @@ class EGNNDynamics(BaseDynamics):
                         vel[frag_index[ii] : frag_index[ii + 1]],
                         combined_mask[frag_index[ii] : frag_index[ii + 1]],
                     ),
-                    self.decoders[ii](h_final[frag_index[ii] : frag_index[ii + 1]]),
+                    h_final[frag_index[ii] : frag_index[ii + 1]],
                 ],
                 dim=-1,
             )
