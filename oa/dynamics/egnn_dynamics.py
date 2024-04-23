@@ -9,7 +9,6 @@ from oa.model import EGNN
 from oa.utils._graph_tools import get_subgraph_mask, get_edges_index
 from ._base import BaseDynamics
 
-
 class EGNNDynamics(BaseDynamics):
     def __init__(
         self,

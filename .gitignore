@@ -6,5 +6,4 @@ lightning_logs/
 *.pyc
 wandb/
 tb_logs/
-*.sh
 *.ipynb

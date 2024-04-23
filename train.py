@@ -21,10 +21,8 @@ from pytorch_lightning.callbacks import (
 )
 from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.strategies.ddp import DDPStrategy
-
 from oa.trainer.ema import EMACallback
 from oa.model import LEFTNet, ConditionNet, PaiNN, OAPaiNN
-
 
 model_type = "oapainn"
 # ---Model---

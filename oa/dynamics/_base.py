@@ -2,8 +2,7 @@
 from typing import Dict, List, Optional
 import torch
 from torch import nn
-
-from oa.model import MLP, EGNN
+from oa.model import MLP
 
 
 class BaseDynamics(nn.Module):
