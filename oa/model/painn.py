@@ -369,7 +369,6 @@ class ScalarMessage(MessagePassing):
             rbfh_ij=rbfh,
             size=None,
         )
-
         return ds
 
     def message(self, xh_i, xh_j, rbfh_ij):
