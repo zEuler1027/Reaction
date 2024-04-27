@@ -24,7 +24,7 @@ from pytorch_lightning.strategies.ddp import DDPStrategy
 from oa.trainer.ema import EMACallback
 from oa.model import LEFTNet, ConditionNet, PaiNN, OAPaiNN
 
-model_type = "oapainn"
+model_type = "pdo"
 # ---Model---
 if model_type == "leftnet_condition":
     condition_config = dict(
@@ -60,12 +60,12 @@ elif model_type == 'painn':
 
 else: # oapainn, default model
     model_config = dict(
-        in_hidden_channels=7,
+        in_hidden_channels=4,
         hidden_channels=256,
-        out_channels=7,
-        num_layers=8,
+        out_channels=4,
+        num_layers=6,
         num_rbf=256,
-        cutoff=10.0,
+        cutoff=5.0,
     )
     model = OAPaiNN
 
@@ -78,9 +78,9 @@ optimizer_config = dict(
 
 
 training_config = dict(
-    datadir="oa/data/transition1x/",
+    datadir="oa/data/pdo/",
     remove_h=False,
-    bz=16,
+    bz=4,
     num_workers=0,
     clip_grad=True,
     gradient_clip_val=None,
@@ -99,21 +99,21 @@ training_config = dict(
     ),  # step
 )
 
-node_nfs: List[int] = [9] * 3  # 3 (pos) + 5 or 2 (cat) + 1 (charge) 
+node_nfs: List[int] = [6] * 3  # 3 (pos) + 5 or 2 (cat) + 1 (charge) 
 edge_nf: int = 0  # edge type
 condition_nf: int = 0
 fragment_names: List[str] = ["R", "TS", "P"]
 pos_dim: int = 3
 update_pocket_coords: bool = True
 condition_time: bool = True
-edge_cutoff: Optional[float] = None # for pdo
+edge_cutoff: Optional[float] = 5.0 # for pdo
 loss_type = "l2"
 pos_only = True
-process_type = "TS1x" # for pdo
+process_type = "PDO" # for pdo
 enforce_same_encoding = None
 scales = [1.0, 2.0, 1.0]
 fixed_idx: Optional[List] = None
-eval_epochs = 10
+eval_epochs = 5
 
 
 # ---Schedule---
