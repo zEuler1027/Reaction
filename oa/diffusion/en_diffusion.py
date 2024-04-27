@@ -70,7 +70,14 @@ class EnVariationalDiffusion(nn.Module):
         device = representations[0]["pos"].device
         masks = [repre["mask"] for repre in representations]
         combined_mask = torch.cat(masks)
-        edge_index = get_edges_index(combined_mask, remove_self_edge=True)
+
+        # nomalize pos to mean 0
+        for repr in representations:
+            repr["pos"] = utils.remove_mean_batch(
+                repr["pos"],
+                repr["mask"],
+            )
+
         fragments_nodes = [repr["size"] for repr in representations]
 
         atoms_mask_rtp = get_atoms_mask_rtp(fragments_nodes) # [0..., 1..., 2...] 0, 1, 2 for num of atoms in r, t, p
@@ -115,6 +122,16 @@ class EnVariationalDiffusion(nn.Module):
         z_t, eps_xh = self.noised_representation(xh, masks, gamma_t)
         # print(eps_xh)  [3, tesnor(num_atoms, 3+n)]
 
+        combined_pos = torch.cat(
+            [z_t[ii][:, : self.pos_dim] for ii in range(len(masks))],
+        )
+        edge_index = get_edges_index(
+            combined_mask,
+            pos=combined_pos,
+            remove_self_edge=True,
+            edge_cutoff=self.dynamics.edge_cutoff, 
+        )
+        
         # Neural net prediction.
         net_eps_xh, net_eps_edge_attr = self.dynamics(
             xh=z_t,
@@ -337,7 +354,11 @@ class EnVariationalDiffusion(nn.Module):
             get_mask_for_frag(natm_nodes) for natm_nodes in fragments_nodes
         ]
         combined_mask = torch.cat(fragments_masks)
-        edge_index = get_edges_index(combined_mask, remove_self_edge=True)
+        edge_index = get_edges_index(
+            combined_mask, 
+            remove_self_edge=True,
+        )
+        
         atoms_mask_rtp = get_atoms_mask_rtp(fragments_nodes)
 
         zt_xh = self.sample_combined_position_feature_noise(masks=fragments_masks)
@@ -661,7 +682,19 @@ class EnVariationalDiffusion(nn.Module):
                 gamma_s = self.schedule.inflate_batch_array(
                     self.schedule.gamma_module(s_array), xh_fixed[0]
                 )
-
+                
+                # for pdo
+                if self.dynamics.edge_cutoff is not None:
+                    combined_pos = torch.cat(
+                        [zt_xh[ii][:, : self.pos_dim] for ii in range(len(h0))]
+                    )
+                    edge_index = get_edges_index(
+                        combined_mask,
+                        pos=combined_pos,
+                        remove_self_edge=True,
+                        edge_cutoff=self.dynamics.edge_cutoff,
+                    )
+                    
                 zt_known, _ = self.noised_representation(
                     xh_fixed, fragments_masks, gamma_s
                 )

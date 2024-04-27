@@ -12,6 +12,7 @@ from pytorch_lightning import LightningModule
 
 from oa.dataset import (
     ProcessedTS1x,
+    PDODataset,
 )
 from oa.dynamics import EGNNDynamics
 from oa.diffusion._schedule import DiffSchedule, PredefinedNoiseSchedule 
@@ -23,6 +24,7 @@ from oa.analyze.rmsd import batch_rmsd
 
 PROCESS_FUNC = {
     "TS1x": ProcessedTS1x,
+    "PDO": PDODataset,
     "OC20": None,
     "CH4": None,
 }
@@ -30,6 +32,7 @@ FILE_TYPE = {
     "TS1x": ".pkl",
     "OC20": ".pkl",
     "CH4": ".pkl",
+    "PDO": ".npz",
 }
 LR_SCHEDULER = {
     "cos": CosineAnnealingWarmRestarts,

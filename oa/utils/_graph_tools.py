@@ -4,7 +4,7 @@ from typing import List, Optional
 import numpy as np
 import torch
 from torch import Tensor
-
+from torch_geometric.nn import radius_graph
 
 def get_edges_index(
     combined_mask: Tensor,
@@ -29,7 +29,15 @@ def get_edges_index(
     # TODO: cache batches for each example in self._edges_dict[n_nodes]
     adj = combined_mask[:, None] == combined_mask[None, :]
     if edge_cutoff is not None:
-        adj = adj & (torch.cdist(pos, pos) <= edge_cutoff)
+        assert pos is not None, "Position must be provided for building edges."
+        edge_index = radius_graph(
+            pos,
+            r=edge_cutoff, 
+            batch=combined_mask, 
+            loop=False, 
+            max_num_neighbors=60
+        )
+        return edge_index
     if remove_self_edge:
         adj = adj.fill_diagonal_(False)
     edges = torch.stack(torch.where(adj), dim=0)
