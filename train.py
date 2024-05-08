@@ -70,7 +70,7 @@ else: # oapainn, default model
     model = OAPaiNN
 
 optimizer_config = dict(
-    lr=5e-4,
+    lr=1e-3,
     betas=[0.9, 0.999],
     weight_decay=0,
     amsgrad=True,
@@ -80,7 +80,7 @@ optimizer_config = dict(
 training_config = dict(
     datadir="oa/data/transition1x/",
     remove_h=False,
-    bz=16,
+    bz=32,
     num_workers=0,
     clip_grad=True,
     gradient_clip_val=None,
@@ -187,7 +187,7 @@ else:
 
 trainer = Trainer(
     fast_dev_run=fast_dev_run, 
-    max_epochs=4000,
+    max_epochs=3000,
     accelerator='gpu',
     deterministic=False,
     logger=logger,

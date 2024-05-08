@@ -608,6 +608,7 @@ class EnVariationalDiffusion(nn.Module):
         timesteps: Optional[int] = None,
         xh_fixed: Optional[List[Tensor]] = None,
         frag_fixed: Optional[List] = None,
+        trajectory: Optional[bool] = False,
     ):
         r"""
         Draw samples from the generative model. Optionally, return intermediate

@@ -1,5 +1,4 @@
 from typing import List, Optional, Tuple
-from uuid import uuid4
 import os
 import datetime
 import torch
@@ -80,7 +79,7 @@ optimizer_config = dict(
 training_config = dict(
     datadir="oa/data/pdo/",
     remove_h=False,
-    bz=4,
+    bz=1,
     num_workers=0,
     clip_grad=True,
     gradient_clip_val=None,

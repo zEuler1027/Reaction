@@ -95,7 +95,7 @@ class EGNNDynamics(BaseDynamics):
 
         h = torch.concat(
             [
-                xh[ii][:, self.pos_dim :].clone()
+                self.encoders[ii](xh[ii][:, self.pos_dim :].clone())
                 for ii, name in enumerate(self.fragment_names)
             ],
             dim=0,
@@ -156,7 +156,7 @@ class EGNNDynamics(BaseDynamics):
                         vel[frag_index[ii] : frag_index[ii + 1]],
                         combined_mask[frag_index[ii] : frag_index[ii + 1]],
                     ),
-                    h_final[frag_index[ii] : frag_index[ii + 1]],
+                    self.decoders[ii](h_final[frag_index[ii] : frag_index[ii + 1]]),
                 ],
                 dim=-1,
             )

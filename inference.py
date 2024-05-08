@@ -1,5 +1,4 @@
 import torch
-import pytorch_lightning as pl
 from torch.utils.data import DataLoader
 from oa.dataset import ProcessedTS1x
 from oa.trainer.pl_trainer import DDPMModule
@@ -11,21 +10,28 @@ from oa.utils.sampling_tools import (
     write_tmp_xyz,
 )
 import os
+import warnings
+
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:128" # prevent OOM
+warnings.filterwarnings("ignore", message="An issue occurred while importing 'pyg-lib'.*") # ignore warnings
+warnings.filterwarnings("ignore", message="An issue occurred while importing 'torch-sparse'.*") # ignore warnings
+
+# choose device
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 print('test device:', device)
 
-# checkpoint
-checkpoint_path = None # modify this to the path of the checkpoint
-filename = '800epoch' # modify this to the filename of the output
+# load checkpoint to pl module
+checkpoint_path = './tb_logs/oapainn/37603/checkpoints/ddpm-epoch=3999-val-totloss=408.22.ckpt' # modify this to the path of the checkpoint
+filename = 'oapainn' # modify this to the filename of the output
 ddpm_trainer = DDPMModule.load_from_checkpoint(
     checkpoint_path=checkpoint_path,
     map_location=device,
 )
+
 # schedule
 noise_schedule: str = "polynomial_2"
-timesteps: int = 500
+timesteps: int = 150
 precision: float = 1e-5
 print('checkpoint:',checkpoint_path, 'file:', filename, 'timestep:', timesteps)
 
@@ -36,16 +42,15 @@ gamma_module = PredefinedNoiseSchedule(
         )
 schedule = DiffSchedule(
     gamma_module=gamma_module,
-    norm_values=ddpm_trainer.ddpm.norm_values,
 )
 ddpm_trainer.ddpm.schedule = schedule
 ddpm_trainer.ddpm.T = timesteps
 ddpm_trainer = ddpm_trainer.to(device)
 
 # config
-batch_size = 6
+batch_size = 16
 val_config = dict(
-    datadir="./data/",
+    datadir="oa/data/transition1x/",
     remove_h=False,
     bz=batch_size,
     num_workers=0,
@@ -57,7 +62,7 @@ val_config = dict(
     append_frag=False,
     use_by_ind=True,
     reflection=False,
-    single_frag_only=False,
+    single_frag_only=True,
     only_ts=False,
     lr_schedule_type=None,
     lr_schedule_config=dict(
@@ -67,22 +72,23 @@ val_config = dict(
 )
 
 # dataset
-dataset = ProcessedTS1x(None)  # load data
+dataset = ProcessedTS1x(Path(val_config['datadir'], 'val.pkl'), **val_config)  # load data
 dataloader = DataLoader(dataset, 
                         batch_size=batch_size,
                         shuffle=False,
-                        num_workers=val_config["num_workers"],
+                        num_workers=0,
                         collate_fn=dataset.collate_fn)
 
 # eval
 
 ddpm_trainer.ddpm.eval()
-interations = 5 # modify this to the number of genrations
+interations = 64 # modify this to the number of genrations
 for iteration in range(interations):
     ex_ind = 0
     os.makedirs(f"./generation/{filename}/iter_{iteration}", exist_ok=True)
     for idx, batch in enumerate(tqdm(dataloader)):
-        
+        if idx == 200:
+            break
         # inpaint
         representations, conditions = batch
         conditions = conditions.to(device)
@@ -112,11 +118,21 @@ for iteration in range(interations):
         fragments_nodes, 
         out_samples[0], 
         idx=[0, 1, 2], 
-        localpath=f"./generation/{filename}/iter_{iteration}",
+        localpath=f"./generation/{filename}/iteration{iteration}",
         ex_ind=ex_ind,
         )
 
+        trajs = {}
+        if idx % 50 == 0:
+            print(f"iter {iteration} batch {idx} is done.")
+            traj_path = './generation/' + filename + '/iteration' + str(iteration)
+            trajs[f'batch{idx}'] = [out_samples, fragments_nodes]
+        
+        # save torch file
+        torch.save(trajs, traj_path + '/trajs.pth')
+            
         ex_ind += len(fragments_nodes[0])
+        
 
 
 

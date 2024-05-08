@@ -127,19 +127,19 @@ def write_single_xyz(xyzfile, natoms, out):
 
 
 def write_tmp_xyz(
-    fragments_nodes, out_samples, idx=[0], prefix="gen", localpath="tmp", ex_ind=0
+    fragments_nodes, out_samples, idx=[0], prefix="reaction", localpath="tmp", ex_ind=0
 ):
     TYPEMAP = {
-        0: "react",
+        0: "r",
         1: "ts",
-        2: "prod",
+        2: "p",
     }
     for ii in idx:
         st = TYPEMAP[ii]
         start_ind, end_ind = 0, 0
         for jj, natoms in enumerate(fragments_nodes[0]):
-            _jj = jj + ex_ind
-            xyzfile = f"{localpath}/{prefix}_{_jj}_{st}.xyz"
+            reaction_idx = jj + ex_ind
+            xyzfile = f"{localpath}/{reaction_idx}/{prefix}_{st}.xyz"
             end_ind += natoms.item()
             write_single_xyz(
                 xyzfile,
