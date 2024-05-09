@@ -70,7 +70,7 @@ else: # oapainn, default model
     model = OAPaiNN
 
 optimizer_config = dict(
-    lr=1e-3,
+    lr=7.5e-4,
     betas=[0.9, 0.999],
     weight_decay=0,
     amsgrad=True,

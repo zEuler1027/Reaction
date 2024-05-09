@@ -609,10 +609,14 @@ class EnVariationalDiffusion(nn.Module):
         xh_fixed: Optional[List[Tensor]] = None,
         frag_fixed: Optional[List] = None,
         trajectory: Optional[bool] = False,
-    ):
+    ) -> Tuple[List[List[List[Tensor]]], List[Tensor]]:
         r"""
         Draw samples from the generative model. Optionally, return intermediate
         states for visualization purposes.
+        
+        return (out_samples, fragments_masks)
+        - out_samples: List[List[Tensor]]: [return_frames + 1 , 3, N]
+        - fragments_masks: List[Tensor] (num_atoms of each reaction)
         """
         timesteps = self.T if timesteps is None else timesteps
         assert 0 < return_frames <= timesteps

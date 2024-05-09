@@ -2,7 +2,7 @@ from typing import List
 import torch
 import numpy as np
 from oa.utils import bond_analyze
-
+import os
 
 def write_xyz(mol, dataset_info, xyzfile="tmp.xyz"):
     atom_decoder = dataset_info["atom_decoder"]
@@ -139,6 +139,7 @@ def write_tmp_xyz(
         start_ind, end_ind = 0, 0
         for jj, natoms in enumerate(fragments_nodes[0]):
             reaction_idx = jj + ex_ind
+            os.makedirs(localpath + f"/{reaction_idx}", exist_ok=True)
             xyzfile = f"{localpath}/{reaction_idx}/{prefix}_{st}.xyz"
             end_ind += natoms.item()
             write_single_xyz(

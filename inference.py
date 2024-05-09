@@ -1,3 +1,7 @@
+import warnings
+warnings.filterwarnings("ignore", message="An issue occurred while importing 'pyg-lib'.*") # ignore warnings
+warnings.filterwarnings("ignore", message="An issue occurred while importing 'torch-sparse'.*") # ignore warnings
+
 import torch
 from torch.utils.data import DataLoader
 from oa.dataset import ProcessedTS1x
@@ -10,12 +14,8 @@ from oa.utils.sampling_tools import (
     write_tmp_xyz,
 )
 import os
-import warnings
-
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:128" # prevent OOM
-warnings.filterwarnings("ignore", message="An issue occurred while importing 'pyg-lib'.*") # ignore warnings
-warnings.filterwarnings("ignore", message="An issue occurred while importing 'torch-sparse'.*") # ignore warnings
 
 # choose device
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
@@ -48,7 +48,7 @@ ddpm_trainer.ddpm.T = timesteps
 ddpm_trainer = ddpm_trainer.to(device)
 
 # config
-batch_size = 16
+batch_size = 20
 val_config = dict(
     datadir="oa/data/transition1x/",
     remove_h=False,
@@ -83,11 +83,13 @@ dataloader = DataLoader(dataset,
 
 ddpm_trainer.ddpm.eval()
 interations = 64 # modify this to the number of genrations
+
 for iteration in range(interations):
     ex_ind = 0
-    os.makedirs(f"./generation/{filename}/iter_{iteration}", exist_ok=True)
+    trajs = {}
+    os.makedirs(f"./generation/{filename}/iteration{iteration}", exist_ok=True)
     for idx, batch in enumerate(tqdm(dataloader)):
-        if idx == 200:
+        if idx == 10:
             break
         # inpaint
         representations, conditions = batch
@@ -106,7 +108,7 @@ for iteration in range(interations):
                 n_samples=n_samples,
                 fragments_nodes=fragments_nodes,
                 conditions=conditions,
-                return_frames=1,
+                return_frames=10,
                 resamplings=5,
                 jump_length=5,
                 timesteps=None,
@@ -122,9 +124,7 @@ for iteration in range(interations):
         ex_ind=ex_ind,
         )
 
-        trajs = {}
-        if idx % 50 == 0:
-            print(f"iter {iteration} batch {idx} is done.")
+        if idx == 0:
             traj_path = './generation/' + filename + '/iteration' + str(iteration)
             trajs[f'batch{idx}'] = [out_samples, fragments_nodes]
         
