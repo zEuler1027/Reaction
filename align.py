@@ -28,10 +28,10 @@ for iter in range(64):
             fo.write(lines[0] + '\n')
             for line in lines[2:]:
                 parts = line.split()
-                if parts:  # 确保行非空
-                    atomic_number = int(parts[0])  # 假设第一列是原子序数
+                if parts:  # ensure not empty
+                    atomic_number = int(parts[0])  
                     if atomic_number in mapping:
-                        parts[0] = mapping[atomic_number]  # 替换为元素符号
+                        parts[0] = mapping[atomic_number] 
                     fo.write(' '.join(parts) + '\n')
                     
     print(f'iteration {iter} done')

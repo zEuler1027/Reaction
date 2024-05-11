@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=DDPM
+#SBATCH --job-name=Align
 #SBATCH --partition=gpu
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
