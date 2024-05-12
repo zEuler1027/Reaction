@@ -9,8 +9,13 @@ mapping = {
     9: 'F',
 }
 
-for iter in range(64):
-    for idx in range(200):
+config = dict(
+    iterations=64,
+    num_reactions=200,
+)
+
+for iter in range(config['iterations']):
+    for idx in range(config['num_reactions']):
         result = subprocess.run(
             f'calculate_rmsd ./generation/oapainn/iteration{iter}/{idx}/reaction_r.xyz \
             ./generation/oapainn/iteration{iter}/{idx}/reaction_p.xyz -e -p > \
