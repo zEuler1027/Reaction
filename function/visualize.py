@@ -16,7 +16,7 @@ def draw_reaction(reaction: List[Molecule]) -> py3Dmol.view:
         )
         mol += '\n'.join(mol_.to(fmt="xyz").split("\n")[2:]) + '\n'
         
-    viewer = py3Dmol.view(2024, 1576)
+    viewer = py3Dmol.view(1200, 512)
     viewer.addModel(mol, "xyz")
     viewer.setStyle({'stick': {'radius': 0.20}, "sphere": {"radius": 0.35}})
     viewer.zoomTo()
